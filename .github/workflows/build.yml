@@ -31,12 +31,23 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@latest
           gomobile init
 
-      - name: Build debug APK
+      - name: Build debug APK (auto output name)
         run: |
           set -e
           echo "Building APK..."
-          gomobile build -v -target=android -o /tmp/go-let-observer-debug.apk ./cmd/go-let-observer
-          echo "APK created at:"
+          # IMPORTANT: no -o here (gomobile decides the APK name when building a main package)
+          gomobile build -v -target=android ./cmd/go-let-observer
+
+          echo "Searching for APK..."
+          find . -maxdepth 5 -type f -name "*.apk" -print -ls
+
+          # Put the first APK found into a known filename for upload
+          APK_PATH="$(find . -maxdepth 5 -type f -name "*.apk" | head -n 1)"
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: No APK produced."
+            exit 1
+          fi
+          cp "$APK_PATH" /tmp/go-let-observer-debug.apk
           ls -lh /tmp/go-let-observer-debug.apk
 
       - name: Upload APK artifact
