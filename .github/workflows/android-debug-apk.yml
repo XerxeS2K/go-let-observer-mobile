@@ -38,4 +38,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: go-let-observer-debug-apk
-          path: go-let-observer-debug.apk
+          path: |
+           **/*.apk
