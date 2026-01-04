@@ -26,33 +26,35 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android packages (pin NDK)
+        run: |
+          sdkmanager --licenses
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.3.11579264"
+
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls -la "$ANDROID_SDK_ROOT/ndk" || true
+
+          # Point ANDROID_NDK_HOME to the pinned NDK
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
+
       - name: Install gomobile
         run: |
           go install golang.org/x/mobile/cmd/gomobile@latest
           gomobile init
 
-      - name: Find main package and build APK
+      - name: Build debug APK (API 21+)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
           set -e
-          echo "Listing repo structure (top level):"
-          ls -la
-
-          echo "Searching for Go main packages..."
-          # List all packages with "package main"
-          MAIN_PKGS=$(grep -R --include="*.go" -n "^package main$" . | cut -d: -f1 | xargs -n1 dirname | sort -u)
-          echo "$MAIN_PKGS"
-
-          # Pick the first main package found
-          MAIN_DIR=$(echo "$MAIN_PKGS" | head -n 1)
-
-          if [ -z "$MAIN_DIR" ]; then
-            echo "ERROR: No 'package main' found in repo."
-            exit 1
-          fi
-
-          echo "Using main package directory: $MAIN_DIR"
-          echo "Building APK..."
-          gomobile build -v -target=android "$MAIN_DIR"
+          echo "Using ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          echo "Building APK with min Android API 21..."
+          # Repo root has main.go, so build from .
+          gomobile build -v -androidapi 21 -target=android .
 
           echo "Searching for APK..."
           find . -maxdepth 6 -type f -name "*.apk" -print -ls
