@@ -1,34 +1,46 @@
-name: build
-on: [push, pull_request]
+name: Build Android Debug APK
+
+on:
+  workflow_dispatch:
+  push:
 
 jobs:
   build:
-    strategy:
-      matrix:
-        go-version: [~1.24]
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    env:
-      GO111MODULE: "on"
-    steps:
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ matrix.go-version }}
+    runs-on: ubuntu-latest
 
-      - name: Checkout code
+    steps:
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install gomobile
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libgl1-mesa-dev libxi-dev libxxf86vm-dev
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
 
-      - name: Download Go modules
-        run: go mod download
+      - name: Build debug APK
+        run: |
+          set -e
+          echo "Building APK..."
+          gomobile build -v -target=android -o /tmp/go-let-observer-debug.apk ./cmd/go-let-observer
+          echo "APK created at:"
+          ls -lh /tmp/go-let-observer-debug.apk
 
-      - name: Build
-        run: go build -v ./...
-
-      - name: Test
-        run: go test ./...
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-let-observer-debug-apk
+          path: /tmp/go-let-observer-debug.apk
