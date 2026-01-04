@@ -31,22 +31,38 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@latest
           gomobile init
 
-      - name: Build debug APK (auto output name)
+      - name: Find main package and build APK
         run: |
           set -e
+          echo "Listing repo structure (top level):"
+          ls -la
+
+          echo "Searching for Go main packages..."
+          # List all packages with "package main"
+          MAIN_PKGS=$(grep -R --include="*.go" -n "^package main$" . | cut -d: -f1 | xargs -n1 dirname | sort -u)
+          echo "$MAIN_PKGS"
+
+          # Pick the first main package found
+          MAIN_DIR=$(echo "$MAIN_PKGS" | head -n 1)
+
+          if [ -z "$MAIN_DIR" ]; then
+            echo "ERROR: No 'package main' found in repo."
+            exit 1
+          fi
+
+          echo "Using main package directory: $MAIN_DIR"
           echo "Building APK..."
-          # IMPORTANT: no -o here (gomobile decides the APK name when building a main package)
-          gomobile build -v -target=android ./cmd/go-let-observer
+          gomobile build -v -target=android "$MAIN_DIR"
 
           echo "Searching for APK..."
-          find . -maxdepth 5 -type f -name "*.apk" -print -ls
+          find . -maxdepth 6 -type f -name "*.apk" -print -ls
 
-          # Put the first APK found into a known filename for upload
-          APK_PATH="$(find . -maxdepth 5 -type f -name "*.apk" | head -n 1)"
+          APK_PATH="$(find . -maxdepth 6 -type f -name "*.apk" | head -n 1)"
           if [ -z "$APK_PATH" ]; then
             echo "ERROR: No APK produced."
             exit 1
           fi
+
           cp "$APK_PATH" /tmp/go-let-observer-debug.apk
           ls -lh /tmp/go-let-observer-debug.apk
 
