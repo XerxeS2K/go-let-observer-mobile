@@ -1,0 +1,729 @@
+name: Apply Android touch build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply_and_build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply Android-only + Touchscreen + Local RCON storage changes
+        run: |
+          set -e
+
+          # ---------------------------
+          # 1) Make desktop main NOT compile on Android (add build tag to main.go)
+          # ---------------------------
+          if [ -f "main.go" ]; then
+            if ! head -n 2 main.go | grep -q "go:build !android"; then
+              tmpfile="$(mktemp)"
+              {
+                echo "//go:build !android"
+                echo "// +build !android"
+                echo
+                cat main.go
+              } > "$tmpfile"
+              mv "$tmpfile" main.go
+            fi
+          fi
+
+          # ---------------------------
+          # 2) Android entrypoint required by gomobile (imports golang.org/x/mobile/app)
+          # ---------------------------
+          cat > main_android.go <<'EOF'
+//go:build android
+// +build android
+
+package main
+
+import (
+	"log"
+
+	"golang.org/x/mobile/app"
+
+	"github.com/hajimehoshi/ebiten/v2/mobile"
+)
+
+func main() {
+	log.Println("go-let-observer Android starting...")
+	app.Main(func(a app.App) {
+		mobile.SetGame(NewAndroidApp())
+	})
+}
+EOF
+
+          # ---------------------------
+          # 3) Store RCON details locally (private app storage) + load on launch
+          # ---------------------------
+          cat > rcon_storage_android.go <<'EOF'
+//go:build android
+// +build android
+
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+)
+
+type RCONConfig struct {
+	Host     string `json:"host"`
+	Port     string `json:"port"`
+	Password string `json:"password"`
+}
+
+func rconConfigPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	dir = filepath.Join(dir, "go-let-observer")
+	return filepath.Join(dir, "rcon.json"), nil
+}
+
+func LoadRCONConfig() (*RCONConfig, error) {
+	p, err := rconConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	var cfg RCONConfig
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func SaveRCONConfig(cfg *RCONConfig) error {
+	p, err := rconConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, b, 0o600)
+}
+EOF
+
+          # ---------------------------
+          # 4) Touchscreen RCON setup screen (password visible)
+          #    Tap fields -> keyboard; Save & Connect
+          # ---------------------------
+          cat > rcon_setup_ui_android.go <<'EOF'
+//go:build android
+// +build android
+
+package main
+
+import (
+	"image/color"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
+)
+
+type focusField int
+
+const (
+	focusNone focusField = iota
+	focusHost
+	focusPort
+	focusPass
+)
+
+type RCONSetupUI struct {
+	Host     string
+	Port     string
+	Password string
+
+	SavePressed bool
+
+	focus focusField
+}
+
+func NewRCONSetupUI() *RCONSetupUI {
+	return &RCONSetupUI{focus: focusHost}
+}
+
+func (u *RCONSetupUI) Update() {
+	// Tap -> focus field / press button
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		x, y := ebiten.CursorPosition()
+
+		if hit(x, y, 60, 160, 680, 70) {
+			u.focus = focusHost
+		} else if hit(x, y, 60, 260, 680, 70) {
+			u.focus = focusPort
+		} else if hit(x, y, 60, 360, 680, 70) {
+			u.focus = focusPass
+		} else if hit(x, y, 60, 470, 680, 80) {
+			u.SavePressed = true
+		}
+	}
+
+	// Text input
+	var chars []rune
+	chars = ebiten.AppendInputChars(chars)
+	if len(chars) > 0 {
+		for _, r := range chars {
+			if r == '\n' || r == '\r' || r == '\t' {
+				continue
+			}
+			switch u.focus {
+			case focusHost:
+				u.Host += string(r)
+			case focusPort:
+				if r >= '0' && r <= '9' {
+					u.Port += string(r)
+				}
+			case focusPass:
+				// Password is visible (per user request)
+				u.Password += string(r)
+			}
+		}
+	}
+
+	// Backspace
+	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
+		switch u.focus {
+		case focusHost:
+			u.Host = backspace(u.Host)
+		case focusPort:
+			u.Port = backspace(u.Port)
+		case focusPass:
+			u.Password = backspace(u.Password)
+		}
+	}
+
+	// Enter = Save
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+		u.SavePressed = true
+	}
+}
+
+func (u *RCONSetupUI) Draw(screen *ebiten.Image) {
+	ebitenutil.DebugPrintAt(screen, "RCON Setup (Android)", 60, 80)
+	ebitenutil.DebugPrintAt(screen, "Tap a field to type. Password is visible.", 60, 110)
+
+	drawField(screen, 60, 160, 680, 70, "Host", u.Host, u.focus == focusHost)
+	drawField(screen, 60, 260, 680, 70, "Port", u.Port, u.focus == focusPort)
+	drawField(screen, 60, 360, 680, 70, "Password", u.Password, u.focus == focusPass)
+
+	drawButton(screen, 60, 470, 680, 80, "Save & Connect")
+}
+
+func backspace(s string) string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return s
+	}
+	return string(r[:len(r)-1])
+}
+
+func hit(x, y, bx, by, bw, bh int) bool {
+	return x >= bx && x < bx+bw && y >= by && y < by+bh
+}
+
+func drawField(screen *ebiten.Image, x, y, w, h int, label, value string, focused bool) {
+	bg := color.RGBA{30, 30, 35, 230}
+	if focused {
+		bg = color.RGBA{50, 50, 70, 240}
+	}
+	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), float64(h), bg)
+	ebitenutil.DebugPrintAt(screen, label+": "+value, x+14, y+26)
+}
+
+func drawButton(screen *ebiten.Image, x, y, w, h int, label string) {
+	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), float64(h), color.RGBA{0, 0, 0, 160})
+	ebitenutil.DebugPrintAt(screen, label, x+14, y+28)
+}
+EOF
+
+          # ---------------------------
+          # 5) Expose the current ViewDimension globally for pinch-zoom (minimal invasive)
+          #    - Add: var GlobalViewDimension *ViewDimension in pkg/ui/shared/shared.go
+          #    - Set it in pkg/ui/views/baseviewer.go when dimension is created
+          # ---------------------------
+          python3 - <<'PY'
+import pathlib, re
+
+shared = pathlib.Path("pkg/ui/shared/shared.go")
+baseviewer = pathlib.Path("pkg/ui/views/baseviewer.go")
+
+if shared.exists():
+    txt = shared.read_text()
+    if "var GlobalViewDimension" not in txt:
+        # Insert after ViewDimension struct definition
+        pattern = r"(type ViewDimension struct \{[^}]+\}\n)"
+        m = re.search(pattern, txt, re.S)
+        if m:
+            insert = m.group(1) + "\n// GlobalViewDimension is set by the viewer and used by the Android touch wrapper for pinch-zoom.\nvar GlobalViewDimension *ViewDimension\n\n"
+            txt = txt[:m.start(1)] + insert + txt[m.end(1):]
+            shared.write_text(txt)
+
+if baseviewer.exists():
+    txt = baseviewer.read_text()
+    if "shared.GlobalViewDimension" not in txt:
+        # After dim initialization in NewBaseViewer, assign global pointer.
+        # Find "dim: &shared.ViewDimension{...}," and insert assignment right after struct literal is created.
+        # We'll do a safe insert by adding a line in the return struct literal block.
+        txt2 = txt
+        # Insert just before "ctx: ctx," line inside the returned struct literal.
+        txt2 = txt2.replace("\t\tctx: ctx,\n\t}\n}\n", "\t\tctx: ctx,\n\t}\n}\n")
+        # Add assignment after return object creation by wrapping:
+        # bv := &BaseViewer{...}; shared.GlobalViewDimension = bv.dim; return bv
+        if "return &BaseViewer{" in txt2 and "shared.GlobalViewDimension" not in txt2:
+            txt2 = re.sub(
+                r"func NewBaseViewer\(ctx shared\.StateContext\) \*BaseViewer \{\s*return &BaseViewer\{",
+                "func NewBaseViewer(ctx shared.StateContext) *BaseViewer {\n\tbv := &BaseViewer{",
+                txt2,
+                count=1
+            )
+            txt2 = re.sub(
+                r"\}\s*\n\}\s*$",
+                "}\n\tshared.GlobalViewDimension = bv.dim\n\treturn bv\n}\n",
+                txt2,
+                count=1
+            )
+        txt = txt2
+        baseviewer.write_text(txt)
+PY
+
+          # ---------------------------
+          # 6) Android app wrapper:
+          #    - Setup mode: type host/port/pass -> save local -> connect
+          #    - Viewer mode: run existing UI (touch works as mouse)
+          #    - Pinch zoom: modifies shared.GlobalViewDimension
+          #    - HUD toggles: writes util.Config.UIOptions booleans
+          # ---------------------------
+          cat > android_app.go <<'EOF'
+//go:build android
+// +build android
+
+package main
+
+import (
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
+
+	"github.com/zMoooooritz/go-let-observer/pkg/ui"
+	"github.com/zMoooooritz/go-let-observer/pkg/ui/shared"
+	"github.com/zMoooooritz/go-let-observer/pkg/util"
+)
+
+type androidMode int
+
+const (
+	modeSetup androidMode = iota
+	modeViewer
+)
+
+type AndroidApp struct {
+	mode  androidMode
+	setup *RCONSetupUI
+
+	viewer ebiten.Game // existing UI game
+	wrap   *TouchWrapper
+
+	errMsg string
+}
+
+func NewAndroidApp() ebiten.Game {
+	a := &AndroidApp{
+		mode:  modeSetup,
+		setup: NewRCONSetupUI(),
+	}
+
+	// Use defaults; do not require any YAML (and no secrets in repo)
+	_ = util.InitConfig("")
+
+	// Try load saved creds
+	if cfg, err := LoadRCONConfig(); err == nil && cfg != nil {
+		a.setup.Host = cfg.Host
+		a.setup.Port = cfg.Port
+		a.setup.Password = cfg.Password
+
+		if err := a.tryStartViewer(); err != nil {
+			a.errMsg = err.Error()
+			a.mode = modeSetup
+		} else {
+			a.mode = modeViewer
+		}
+	}
+
+	return a
+}
+
+func (a *AndroidApp) Update() error {
+	switch a.mode {
+	case modeSetup:
+		a.setup.Update()
+		if a.setup.SavePressed {
+			a.setup.SavePressed = false
+
+			cfg := &RCONConfig{
+				Host:     strings.TrimSpace(a.setup.Host),
+				Port:     strings.TrimSpace(a.setup.Port),
+				Password: a.setup.Password,
+			}
+			if err := SaveRCONConfig(cfg); err != nil {
+				a.errMsg = "Save failed: " + err.Error()
+				return nil
+			}
+			if err := a.tryStartViewer(); err != nil {
+				a.errMsg = err.Error()
+				return nil
+			}
+			a.errMsg = ""
+			a.mode = modeViewer
+		}
+		return nil
+
+	case modeViewer:
+		// Top-left tap zone -> Settings
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			x, y := ebiten.CursorPosition()
+			if x >= 0 && x < 170 && y >= 0 && y < 70 {
+				a.mode = modeSetup
+				return nil
+			}
+		}
+		return a.wrap.Update()
+	}
+	return nil
+}
+
+func (a *AndroidApp) Draw(screen *ebiten.Image) {
+	switch a.mode {
+	case modeSetup:
+		a.setup.Draw(screen)
+		if a.errMsg != "" {
+			ebitenutil.DebugPrintAt(screen, a.errMsg, 60, 560)
+		}
+	case modeViewer:
+		a.wrap.Draw(screen)
+		ebitenutil.DebugPrintAt(screen, "[Settings]", 10, 10)
+	}
+}
+
+func (a *AndroidApp) Layout(outsideW, outsideH int) (int, int) {
+	// Force a stable internal resolution; Ebiten scales to device.
+	return 1000, 720
+}
+
+func (a *AndroidApp) tryStartViewer() error {
+	host := strings.TrimSpace(a.setup.Host)
+	portStr := strings.TrimSpace(a.setup.Port)
+	pass := a.setup.Password
+
+	if host == "" {
+		return fmt.Errorf("Host is required")
+	}
+	if portStr == "" {
+		return fmt.Errorf("Port is required")
+	}
+	if _, err := strconv.Atoi(portStr); err != nil {
+		return fmt.Errorf("Port must be a number")
+	}
+	if pass == "" {
+		return fmt.Errorf("Password is required")
+	}
+
+	// Apply creds into runtime config
+	util.Config.ServerCredentials.Host = host
+	util.Config.ServerCredentials.Port = portStr
+	util.Config.ServerCredentials.Password = pass
+
+	// Viewer mode only
+	util.Config.Mode = "viewer"
+
+	// UI sizing & fonts
+	screenSize := util.Config.UIOptions.ScreenSize
+	screenSize = util.Clamp(screenSize, shared.MIN_SCREEN_SIZE, shared.MAX_SCREEN_SIZE)
+	util.Config.UIOptions.ScreenSize = screenSize
+	util.InitializeFonts(screenSize)
+
+	// Create existing UI as viewer
+	a.viewer = ui.NewUI(true)
+
+	// Wrap it with touch HUD + pinch zoom
+	a.wrap = NewTouchWrapper(a.viewer)
+
+	return nil
+}
+
+// TouchWrapper overlays HUD buttons and pinch-zoom on top of the existing UI.
+type TouchWrapper struct {
+	base ebiten.Game
+
+	// pinch state
+	lastTwoFinger bool
+	lastDist      float64
+	lastCX, lastCY float64
+
+	// HUD layout
+}
+
+func NewTouchWrapper(base ebiten.Game) *TouchWrapper {
+	return &TouchWrapper{base: base}
+}
+
+func (w *TouchWrapper) Update() error {
+	// HUD taps first (consume)
+	if w.handleHUDTap() {
+		return w.base.Update()
+	}
+
+	// Pinch zoom
+	w.handlePinchZoom()
+
+	return w.base.Update()
+}
+
+func (w *TouchWrapper) Draw(screen *ebiten.Image) {
+	w.base.Draw(screen)
+	w.drawHUD(screen)
+}
+
+func (w *TouchWrapper) Layout(outsideW, outsideH int) (int, int) {
+	return w.base.Layout(outsideW, outsideH)
+}
+
+func (w *TouchWrapper) handlePinchZoom() {
+	var ids []ebiten.TouchID
+	ids = ebiten.AppendTouchIDs(ids)
+
+	if len(ids) < 2 {
+		w.lastTwoFinger = false
+		return
+	}
+
+	x1, y1 := ebiten.TouchPosition(ids[0])
+	x2, y2 := ebiten.TouchPosition(ids[1])
+
+	cx := (float64(x1) + float64(x2)) / 2
+	cy := (float64(y1) + float64(y2)) / 2
+	dist := math.Hypot(float64(x2-x1), float64(y2-y1))
+
+	dim := shared.GlobalViewDimension
+	if dim == nil {
+		// If viewer hasn't created it yet, nothing to zoom.
+		w.lastTwoFinger = true
+		w.lastDist = dist
+		w.lastCX, w.lastCY = cx, cy
+		return
+	}
+
+	if !w.lastTwoFinger {
+		w.lastTwoFinger = true
+		w.lastDist = dist
+		w.lastCX, w.lastCY = cx, cy
+		return
+	}
+
+	// Ratio-based zoom feels natural
+	if w.lastDist <= 0 {
+		w.lastDist = dist
+		return
+	}
+	ratio := dist / w.lastDist
+	if ratio < 0.85 || ratio > 1.15 {
+		oldZoom := dim.ZoomLevel
+		newZoom := oldZoom * ratio
+		if newZoom < shared.MIN_ZOOM_LEVEL {
+			newZoom = shared.MIN_ZOOM_LEVEL
+		} else if newZoom > shared.MAX_ZOOM_LEVEL {
+			newZoom = shared.MAX_ZOOM_LEVEL
+		}
+
+		// Keep pinch center stable (like mouse-wheel zoom in mapview)
+		mouseWorldX := (cx - dim.PanX) / oldZoom
+		mouseWorldY := (cy - dim.PanY) / oldZoom
+		dim.ZoomLevel = newZoom
+		dim.PanX -= mouseWorldX * (dim.ZoomLevel - oldZoom)
+		dim.PanY -= mouseWorldY * (dim.ZoomLevel - oldZoom)
+
+		// Reset pan at min zoom
+		if dim.ZoomLevel == shared.MIN_ZOOM_LEVEL {
+			dim.PanX = 0
+			dim.PanY = 0
+		}
+
+		// Clamp pan to bounds
+		dim.PanX = util.Clamp(dim.PanX, float64(dim.SizeX)*(shared.MIN_ZOOM_LEVEL-dim.ZoomLevel), 0)
+		dim.PanY = util.Clamp(dim.PanY, float64(dim.SizeY)*(shared.MIN_ZOOM_LEVEL-dim.ZoomLevel), 0)
+
+		w.lastDist = dist
+	}
+
+	w.lastCX, w.lastCY = cx, cy
+}
+
+// HUD buttons toggle the same config flags the UI already uses.
+func (w *TouchWrapper) handleHUDTap() bool {
+	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		return false
+	}
+	x, y := ebiten.CursorPosition()
+
+	// HUD region: right side column
+	// Each button: 220x60
+	btnW, btnH := 220, 60
+	startX := 1000 - btnW - 10
+	startY := 80
+
+	type btn struct {
+		label string
+		action func()
+		row int
+	}
+
+	buttons := []btn{
+		{"Players", func(){ util.Config.UIOptions.ShowPlayers = !util.Config.UIOptions.ShowPlayers }, 0},
+		{"Info",    func(){ util.Config.UIOptions.ShowPlayerInfo = !util.Config.UIOptions.ShowPlayerInfo }, 1},
+		{"Spawns",  func(){ util.Config.UIOptions.ShowSpawns = !util.Config.UIOptions.ShowSpawns }, 2},
+		{"Tanks",   func(){ util.Config.UIOptions.ShowTanks = !util.Config.UIOptions.ShowTanks }, 3},
+		{"Grid",    func(){ util.Config.UIOptions.ShowGridOverlay = !util.Config.UIOptions.ShowGridOverlay }, 4},
+		{"Header",  func(){ util.Config.UIOptions.ShowServerInfoOverlay = !util.Config.UIOptions.ShowServerInfoOverlay }, 5},
+	}
+
+	// Settings tap zone handled by AndroidApp, not here.
+
+	// Speed controls (bottom)
+	speedY := 720 - 70
+	if hit(x, y, 10, speedY, 180, 60) {
+		// Slower: increase interval index (same behavior as UI uses internally)
+		// We can only affect fetch behavior indirectly here; keep as toggle placeholder for now.
+		// If you want exact timing parity, we can wire it to the mapview interval later.
+		return true
+	}
+	if hit(x, y, 200, speedY, 180, 60) {
+		// Pause placeholder
+		return true
+	}
+	if hit(x, y, 390, speedY, 180, 60) {
+		// Faster placeholder
+		return true
+	}
+
+	for _, b := range buttons {
+		bx := startX
+		by := startY + b.row*(btnH+10)
+		if hit(x, y, bx, by, btnW, btnH) {
+			b.action()
+			return true
+		}
+	}
+	return false
+}
+
+func (w *TouchWrapper) drawHUD(screen *ebiten.Image) {
+	ebitenutil.DebugPrintAt(screen, "Touch HUD", 820, 55)
+
+	btnW, btnH := 220, 60
+	startX := 1000 - btnW - 10
+	startY := 80
+
+	drawBtn := func(row int, label string, on bool) {
+		bx := startX
+		by := startY + row*(btnH+10)
+		c := "OFF"
+		if on { c = "ON" }
+		ebitenutil.DebugPrintAt(screen, label+" ["+c+"]", bx+12, by+20)
+	}
+
+	drawBtn(0, "Players", util.Config.UIOptions.ShowPlayers)
+	drawBtn(1, "Info", util.Config.UIOptions.ShowPlayerInfo)
+	drawBtn(2, "Spawns", util.Config.UIOptions.ShowSpawns)
+	drawBtn(3, "Tanks", util.Config.UIOptions.ShowTanks)
+	drawBtn(4, "Grid", util.Config.UIOptions.ShowGridOverlay)
+	drawBtn(5, "Header", util.Config.UIOptions.ShowServerInfoOverlay)
+
+	// Bottom buttons labels (placeholders)
+	ebitenutil.DebugPrintAt(screen, "Slower", 20, 720-50)
+	ebitenutil.DebugPrintAt(screen, "Pause", 210, 720-50)
+	ebitenutil.DebugPrintAt(screen, "Faster", 400, 720-50)
+}
+
+func hit(x, y, bx, by, bw, bh int) bool {
+	return x >= bx && x < bx+bw && y >= by && y < by+bh
+}
+EOF
+
+          # ---------------------------
+          # 7) Commit changes back to repo
+          # ---------------------------
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Apply Android-only touch build + local RCON input" || echo "No changes to commit."
+
+      - name: Push changes
+        run: |
+          git push
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages (pin NDK)
+        run: |
+          sdkmanager --licenses
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.3.11579264"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
+
+      - name: Build debug APK (API 21+)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          set -e
+          gomobile build -v -androidapi 21 -target=android -o /tmp/go-let-observer-debug.apk .
+          ls -lh /tmp/go-let-observer-debug.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-let-observer-debug-apk
+          path: /tmp/go-let-observer-debug.apk
