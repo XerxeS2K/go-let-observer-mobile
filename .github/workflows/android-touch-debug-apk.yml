@@ -51,6 +51,7 @@ jobs:
           set -e
           gomobile build -v \
             -target=android \
+            -androidapi 21 \
             -o app-debug.apk \
             ./android
 
