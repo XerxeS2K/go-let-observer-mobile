@@ -6,8 +6,7 @@ package main
 import (
 	"log"
 
-	"golang.org/x/mobile/app"
-
+	"github.com/ebitengine/gomobile/app"
 	"github.com/hajimehoshi/ebiten/v2/mobile"
 )
 
