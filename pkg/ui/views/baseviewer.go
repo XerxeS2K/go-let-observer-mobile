@@ -13,7 +13,7 @@ type BaseViewer struct {
 }
 
 func NewBaseViewer(ctx shared.StateContext) *BaseViewer {
-	return &BaseViewer{
+	bv := &BaseViewer{
 		backgroundImage: nil,
 		dim: &shared.ViewDimension{
 			SizeX:     util.Config.UIOptions.ScreenSize,
@@ -24,6 +24,8 @@ func NewBaseViewer(ctx shared.StateContext) *BaseViewer {
 		},
 		ctx: ctx,
 	}
+	shared.GlobalViewDimension = bv.dim
+	return bv
 }
 
 func (bv *BaseViewer) DrawBackground(screen *ebiten.Image) {

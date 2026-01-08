@@ -62,6 +62,9 @@ type ViewDimension struct {
 	PanY      float64
 }
 
+// GlobalViewDimension is set by the viewer and used by the Android touch wrapper (pinch-zoom).
+var GlobalViewDimension *ViewDimension
+
 func (vd *ViewDimension) FrustumSize() (float64, float64) {
 	screenSizeX := float64(vd.SizeX) * vd.ZoomLevel
 	screenSizeY := float64(vd.SizeY) * vd.ZoomLevel
