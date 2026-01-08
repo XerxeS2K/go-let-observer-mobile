@@ -8,42 +8,57 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version: "1.22.x"
 
-      - uses: actions/setup-java@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Install Android NDK
+      - name: Install Android NDK (supported)
         run: |
           sdkmanager "ndk;26.3.11579264"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
 
-      - name: Install Ebiten gomobile
+      - name: Patch Android app import for Ebiten gomobile (no repo edits)
         run: |
-          go mod edit -droprequire=golang.org/x/mobile || true
+          set -e
+          if [ -f "android/main_android.go" ]; then
+            sed -i 's|"golang.org/x/mobile/app"|"github.com/ebitengine/gomobile/app"|g' android/main_android.go
+          fi
+
+      - name: Install Ebiten gomobile
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          set -e
           go mod tidy
           go install github.com/ebitengine/gomobile/cmd/gomobile@latest
-          gomobile init
+          gomobile init -ndk "$ANDROID_NDK_HOME" -androidapi 21
 
       - name: Build APK
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
-          gomobile build \
+          set -e
+          gomobile build -v \
             -target=android \
             -androidapi=21 \
             -o app-debug.apk \
-            .
+            ./android
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: go-let-observer-debug-apk
           path: app-debug.apk
