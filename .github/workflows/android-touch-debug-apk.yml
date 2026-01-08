@@ -30,12 +30,10 @@ jobs:
           sdkmanager "ndk;26.3.11579264"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
 
-      - name: Patch Android app import for Ebiten gomobile (no repo edits)
+      - name: Patch Android app import for Ebiten gomobile
         run: |
           set -e
-          if [ -f "android/main_android.go" ]; then
-            sed -i 's|"golang.org/x/mobile/app"|"github.com/ebitengine/gomobile/app"|g' android/main_android.go
-          fi
+          sed -i 's|"golang.org/x/mobile/app"|"github.com/ebitengine/gomobile/app"|g' android/main_android.go
 
       - name: Install Ebiten gomobile
         env:
@@ -44,7 +42,7 @@ jobs:
           set -e
           go mod tidy
           go install github.com/ebitengine/gomobile/cmd/gomobile@latest
-          gomobile init -ndk "$ANDROID_NDK_HOME" -androidapi 21
+          gomobile init
 
       - name: Build APK
         env:
@@ -53,7 +51,6 @@ jobs:
           set -e
           gomobile build -v \
             -target=android \
-            -androidapi=21 \
             -o app-debug.apk \
             ./android
 
