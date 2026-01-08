@@ -1,0 +1,151 @@
+name: Apply Android touch build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply_and_build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply Android entrypoint + RCON UI (correct package)
+        run: |
+          set -e
+          APPDIR="cmd/go-let-observer"
+
+          # Ensure app directory exists
+          test -d "$APPDIR"
+
+          # Desktop main must not compile on Android
+          if ! head -n 2 "$APPDIR/main.go" | grep -q "go:build !android"; then
+            tmp=$(mktemp)
+            {
+              echo "//go:build !android"
+              echo "// +build !android"
+              echo
+              cat "$APPDIR/main.go"
+            } > "$tmp"
+            mv "$tmp" "$APPDIR/main.go"
+          fi
+
+          # Android entrypoint (THIS is what gomobile requires)
+          cat > "$APPDIR/main_android.go" <<'EOF'
+//go:build android
+// +build android
+
+package main
+
+import (
+	"log"
+	"golang.org/x/mobile/app"
+	"github.com/hajimehoshi/ebiten/v2/mobile"
+)
+
+func main() {
+	log.Println("go-let-observer Android starting")
+	app.Main(func(a app.App) {
+		mobile.SetGame(NewAndroidApp())
+	})
+}
+EOF
+
+          # Local RCON storage (private app dir)
+          cat > "$APPDIR/rcon_storage_android.go" <<'EOF'
+//go:build android
+// +build android
+
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+)
+
+type RCONConfig struct {
+	Host string `json:"host"`
+	Port string `json:"port"`
+	Password string `json:"password"`
+}
+
+func rconPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	dir = filepath.Join(dir, "go-let-observer")
+	return filepath.Join(dir, "rcon.json"), nil
+}
+
+func LoadRCON() (*RCONConfig, error) {
+	p, err := rconPath()
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	var c RCONConfig
+	return &c, json.Unmarshal(b, &c)
+}
+
+func SaveRCON(c *RCONConfig) error {
+	p, err := rconPath()
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(filepath.Dir(p), 0700)
+	b, _ := json.Marshal(c)
+	return os.WriteFile(p, b, 0600)
+}
+EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Android-only build with local RCON input" || true
+          git push
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: |
+          sdkmanager --licenses
+          sdkmanager "ndk;26.3.11579264"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
+
+      - name: Build APK
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          gomobile build -v -androidapi 21 -target=android -o /tmp/go-let-observer-debug.apk ./cmd/go-let-observer
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-let-observer-debug-apk
+          path: /tmp/go-let-observer-debug.apk
