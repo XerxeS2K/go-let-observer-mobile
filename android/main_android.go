@@ -1,5 +1,5 @@
-//go:build android || mobile
-// +build android mobile
+//go:build android
+// +build android
 
 package main
 
@@ -13,8 +13,9 @@ import (
 func main() {
 	log.Println("go-let-observer Android starting")
 
-	app.Main(func(a app.App) {
-		game := NewAndroidApp()
+	game := NewAndroidGame()
+
+	app.Main(func(_ app.App) {
 		mobile.SetGame(game)
 	})
 }
