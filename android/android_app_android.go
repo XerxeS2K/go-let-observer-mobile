@@ -5,8 +5,7 @@ package main
 
 import (
 	"log"
-
-	"golang.org/x/mobile/app"
+	"github.com/ebitengine/gomobile/app"
 )
 
 type AndroidApp struct{}
