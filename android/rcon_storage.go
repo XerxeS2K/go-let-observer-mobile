@@ -1,5 +1,5 @@
-//go:build android
-// +build android
+//go:build android || mobile
+// +build android mobile
 
 package main
 
@@ -20,35 +20,43 @@ func rconConfigPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir = filepath.Join(dir, "go-let-observer")
-	if err := os.MkdirAll(dir, 0700); err != nil {
+
+	appDir := filepath.Join(dir, "go-let-observer")
+	err = os.MkdirAll(appDir, 0700)
+	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "rcon.json"), nil
+
+	return filepath.Join(appDir, "rcon.json"), nil
 }
 
 func SaveRCONConfig(cfg RCONConfig) error {
-	p, err := rconConfigPath()
+	path, err := rconConfigPath()
 	if err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(cfg, "", "  ")
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, b, 0600)
+
+	return os.WriteFile(path, data, 0600)
 }
 
 func LoadRCONConfig() (RCONConfig, error) {
 	var cfg RCONConfig
-	p, err := rconConfigPath()
+
+	path, err := rconConfigPath()
 	if err != nil {
 		return cfg, err
 	}
-	b, err := os.ReadFile(p)
+
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return cfg, err
 	}
-	err = json.Unmarshal(b, &cfg)
+
+	err = json.Unmarshal(data, &cfg)
 	return cfg, err
 }
