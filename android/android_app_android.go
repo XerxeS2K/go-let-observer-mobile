@@ -3,31 +3,22 @@
 
 package main
 
-import (
-	"image/color"
+import "github.com/hajimehoshi/ebiten/v2"
 
-	"github.com/hajimehoshi/ebiten/v2"
-)
-
-type AndroidApp struct {
-	width  int
-	height int
-}
+type AndroidApp struct{}
 
 func NewAndroidApp() *AndroidApp {
 	return &AndroidApp{}
 }
 
+// Ebiten Game interface
 func (a *AndroidApp) Update() error {
 	return nil
 }
 
 func (a *AndroidApp) Draw(screen *ebiten.Image) {
-	screen.Fill(color.RGBA{20, 20, 20, 255})
 }
 
-func (a *AndroidApp) Layout(outsideWidth, outsideHeight int) (int, int) {
-	a.width = outsideWidth
-	a.height = outsideHeight
-	return outsideWidth, outsideHeight
+func (a *AndroidApp) Layout(w, h int) (int, int) {
+	return w, h
 }
