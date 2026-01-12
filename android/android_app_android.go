@@ -1,53 +1,34 @@
-//go:build android || mobile
-// +build android mobile
+//go:build android
+// +build android
 
-package main
+package android
 
 import (
 	"log"
 
-	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/ebitengine/gomobile/app"
+	"github.com/ebitengine/gomobile/mobile"
 )
 
-// AndroidApp is the root Ebiten game for Android.
-// It MUST implement ebiten.Game.
+// AndroidApp is the gomobile entry wrapper.
+// It does NOT have Run(), Update(), etc.
+// Ebiten handles the lifecycle internally.
 type AndroidApp struct {
-	width  int
-	height int
+	game mobile.Game
 }
 
-// NewAndroidApp creates the Android game instance.
-// This is what mobile.SetGame(...) receives.
-func NewAndroidApp() *AndroidApp {
-	log.Println("NewAndroidApp initialised")
+// NewAndroidApp creates the Android Ebiten app wrapper.
+func NewAndroidApp(game mobile.Game) *AndroidApp {
 	return &AndroidApp{
-		width:  1280,
-		height: 720,
+		game: game,
 	}
 }
 
-// Update is called every tick by Ebiten.
-func (a *AndroidApp) Update() error {
-	// TODO:
-	// - Touch handling
-	// - RCON UI state updates
-	// - Networking / polling
-	return nil
-}
-
-// Draw renders the frame.
-func (a *AndroidApp) Draw(screen *ebiten.Image) {
-	// TODO:
-	// - Draw map
-	// - Draw UI controls
-	// - Draw overlays / debug text
-}
-
-// Layout tells Ebiten the logical resolution.
-func (a *AndroidApp) Layout(outsideWidth, outsideHeight int) (int, int) {
-	if outsideWidth > 0 && outsideHeight > 0 {
-		a.width = outsideWidth
-		a.height = outsideHeight
-	}
-	return a.width, a.height
+// Start registers the game with gomobile/app.
+// This MUST be called from main().
+func (a *AndroidApp) Start() {
+	log.Println("AndroidApp starting (Ebiten gomobile)")
+	app.Main(func(_ app.App) {
+		mobile.SetGame(a.game)
+	})
 }
