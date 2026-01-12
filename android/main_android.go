@@ -6,11 +6,11 @@ package main
 import (
 	"log"
 
-	"golang.org/x/mobile/app"
+	"github.com/ebitengine/gomobile/app"
 )
 
 func main() {
-	log.Println("go-let-observer Android starting")
+	log.Println("go-let-observer Android starting...")
 	app.Main(func(a app.App) {
 		NewAndroidApp().Run(a)
 	})
