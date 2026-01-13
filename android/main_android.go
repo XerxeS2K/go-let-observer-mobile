@@ -1,5 +1,5 @@
-//go:build android
-// +build android
+//go:build android || mobile
+// +build android mobile
 
 package main
 
@@ -7,15 +7,16 @@ import (
 	"log"
 
 	"github.com/ebitengine/gomobile/app"
-	"github.com/ebitengine/gomobile/mobile"
+	"github.com/hajimehoshi/ebiten/v2/mobile"
 )
 
 func main() {
-	log.Println("go-let-observer Android starting")
+	log.Println("go-let-observer Android starting...")
 
-	game := NewAndroidGame()
-
-	app.Main(func(_ app.App) {
-		mobile.SetGame(game)
+	app.Main(func(a app.App) {
+		// IMPORTANT:
+		// - Use github.com/ebitengine/gomobile/app (NOT golang.org/x/mobile/app)
+		// - Use github.com/hajimehoshi/ebiten/v2/mobile for SetGame
+		mobile.SetGame(NewAndroidApp())
 	})
 }
