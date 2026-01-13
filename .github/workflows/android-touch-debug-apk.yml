@@ -11,10 +11,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Your go.mod is already on Go 1.24.x in the latest zip, and your gomobile version requires Go >= 1.24
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22.x"
+          go-version: "1.24.x"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -25,13 +26,35 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK + NDK
+      - name: Install Android SDK packages
         run: |
-          sdkmanager "platforms;android-33" "build-tools;33.0.2" "ndk;26.3.11579264"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
+          sdkmanager --licenses <<EOF
+          y
+          EOF
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.3.11579264"
 
-      - name: Install Ebiten gomobile
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/26.3.11579264" >> $GITHUB_ENV
+
+      - name: Install build deps (Ebiten)
         run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev \
+            xorg-dev \
+            pkg-config
+
+      - name: Tidy modules
+        run: |
+          go mod tidy
+
+      - name: Install gomobile (Ebiten fork)
+        run: |
+          # Install the gomobile command from the Ebiten fork.
+          # If your go.mod already pins github.com/ebitengine/gomobile indirectly, this is compatible.
           go install github.com/ebitengine/gomobile/cmd/gomobile@latest
           gomobile init
 
@@ -40,13 +63,14 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
           gomobile build \
+            -v \
             -target=android \
             -androidapi=21 \
             -o app-debug.apk \
             ./android
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: go-let-observer-debug-apk
+          name: go-let-observer-android-debug-apk
           path: app-debug.apk
