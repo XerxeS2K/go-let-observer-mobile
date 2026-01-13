@@ -34,3 +34,7 @@ func (u *RCONSetupUI) Draw(screen *ebiten.Image) {
 	// Placeholder: no-op
 	_ = screen
 }
+
+func (u *RCONSetupUI) Layout(outsideWidth, outsideHeight int) (int, int) {
+	return outsideWidth, outsideHeight
+}
