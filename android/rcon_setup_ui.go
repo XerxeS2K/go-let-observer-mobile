@@ -1,5 +1,5 @@
-//go:build android
-// +build android
+//go:build android || mobile
+// +build android mobile
 
 package main
 
