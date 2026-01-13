@@ -1,38 +1,36 @@
-//go:build android || mobile
-// +build android mobile
+//go:build android
+// +build android
 
 package main
 
 import (
 	"log"
+	"os"
+	"path/filepath"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/zMoooooritz/go-let-observer/pkg/ui"
 	"github.com/zMoooooritz/go-let-observer/pkg/ui/shared"
 	"github.com/zMoooooritz/go-let-observer/pkg/util"
 )
 
-// NewAndroidApp creates the Ebiten Game used by gomobile.
-// mobile.SetGame(...) will drive Update/Draw/Layout automatically.
-func NewAndroidApp() ebiten.Game {
-	// Match the desktop default config path.
-	// This file exists in your repo at configs/config.yaml.
-	//
-	// If you later want an Android-specific config path, we can add it,
-	// but this keeps behavior consistent with the upstream app.
-	const configPath = "configs/config.yaml"
+func NewAndroidApp() *ui.UI {
+	log.Println("NewAndroidApp(): initializing config and UI")
 
-	if err := util.InitConfig(configPath); err != nil {
-		// Don’t panic; log and continue. The UI might still show something useful.
-		log.Printf("InitConfig(%s) failed: %v", configPath, err)
+	// Try to load a persisted config if it exists, otherwise fall back to defaults.
+	if cfgDir, err := os.UserConfigDir(); err == nil && cfgDir != "" {
+		cfgPath := filepath.Join(cfgDir, "go-let-observer", "config.yaml")
+		if _, statErr := os.Stat(cfgPath); statErr == nil {
+			if err := util.InitConfig(cfgPath); err != nil {
+				log.Printf("InitConfig(%s) failed, using defaults: %v", cfgPath, err)
+				_ = util.InitConfig("")
+			}
+		} else {
+			_ = util.InitConfig("")
+		}
+	} else {
+		_ = util.InitConfig("")
 	}
 
-	// PresentationMode in this project means viewer/replay/record etc (not “touch mode”).
-	// Android touch support is handled by Ebiten’s mobile input automatically.
-	game := ui.NewUI(shared.MODE_VIEWER)
-
-	// Optional safety: ensure we satisfy ebiten.Game at compile time
-	var _ ebiten.Game = game
-
-	return game
+	// Viewer mode (same intent as desktop viewer, but mobile-driven)
+	return ui.NewUI(shared.MODE_VIEWER)
 }
