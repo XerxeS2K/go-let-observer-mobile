@@ -1,34 +1,38 @@
-//go:build android
-// +build android
+//go:build android || mobile
+// +build android mobile
 
-package android
+package main
 
 import (
 	"log"
 
-	"github.com/ebitengine/gomobile/app"
-	"github.com/ebitengine/gomobile/mobile"
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/zMoooooritz/go-let-observer/pkg/ui"
+	"github.com/zMoooooritz/go-let-observer/pkg/ui/shared"
+	"github.com/zMoooooritz/go-let-observer/pkg/util"
 )
 
-// AndroidApp is the gomobile entry wrapper.
-// It does NOT have Run(), Update(), etc.
-// Ebiten handles the lifecycle internally.
-type AndroidApp struct {
-	game mobile.Game
-}
+// NewAndroidApp creates the Ebiten Game used by gomobile.
+// mobile.SetGame(...) will drive Update/Draw/Layout automatically.
+func NewAndroidApp() ebiten.Game {
+	// Match the desktop default config path.
+	// This file exists in your repo at configs/config.yaml.
+	//
+	// If you later want an Android-specific config path, we can add it,
+	// but this keeps behavior consistent with the upstream app.
+	const configPath = "configs/config.yaml"
 
-// NewAndroidApp creates the Android Ebiten app wrapper.
-func NewAndroidApp(game mobile.Game) *AndroidApp {
-	return &AndroidApp{
-		game: game,
+	if err := util.InitConfig(configPath); err != nil {
+		// Don’t panic; log and continue. The UI might still show something useful.
+		log.Printf("InitConfig(%s) failed: %v", configPath, err)
 	}
-}
 
-// Start registers the game with gomobile/app.
-// This MUST be called from main().
-func (a *AndroidApp) Start() {
-	log.Println("AndroidApp starting (Ebiten gomobile)")
-	app.Main(func(_ app.App) {
-		mobile.SetGame(a.game)
-	})
+	// PresentationMode in this project means viewer/replay/record etc (not “touch mode”).
+	// Android touch support is handled by Ebiten’s mobile input automatically.
+	game := ui.NewUI(shared.MODE_VIEWER)
+
+	// Optional safety: ensure we satisfy ebiten.Game at compile time
+	var _ ebiten.Game = game
+
+	return game
 }
