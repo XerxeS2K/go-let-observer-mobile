@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 )
@@ -16,47 +17,49 @@ type RCONConfig struct {
 }
 
 func rconConfigPath() (string, error) {
+	// On Android (gomobile), UserConfigDir normally resolves to app-private storage.
 	dir, err := os.UserConfigDir()
-	if err != nil {
+	if err != nil || dir == "" {
+		// fallback: current dir
+		dir = "."
+	}
+	cfgDir := filepath.Join(dir, "go-let-observer")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
 		return "", err
 	}
-
-	appDir := filepath.Join(dir, "go-let-observer")
-	err = os.MkdirAll(appDir, 0700)
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(appDir, "rcon.json"), nil
-}
-
-func SaveRCONConfig(cfg RCONConfig) error {
-	path, err := rconConfigPath()
-	if err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, data, 0600)
+	return filepath.Join(cfgDir, "rcon.json"), nil
 }
 
 func LoadRCONConfig() (RCONConfig, error) {
+	p, err := rconConfigPath()
+	if err != nil {
+		return RCONConfig{}, err
+	}
+
+	b, err := os.ReadFile(p)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return RCONConfig{}, os.ErrNotExist
+		}
+		return RCONConfig{}, err
+	}
+
 	var cfg RCONConfig
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return RCONConfig{}, err
+	}
+	return cfg, nil
+}
 
-	path, err := rconConfigPath()
+func SaveRCONConfig(cfg RCONConfig) error {
+	p, err := rconConfigPath()
 	if err != nil {
-		return cfg, err
+		return err
 	}
 
-	data, err := os.ReadFile(path)
+	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return cfg, err
+		return err
 	}
-
-	err = json.Unmarshal(data, &cfg)
-	return cfg, err
+	return os.WriteFile(p, b, 0o600)
 }
