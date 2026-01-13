@@ -13,24 +13,20 @@ import (
 	"github.com/zMoooooritz/go-let-observer/pkg/util"
 )
 
+// NewAndroidApp creates the Ebiten UI in viewer mode for Android.
+// It also ensures we have a writable per-app config location (for future use).
 func NewAndroidApp() *ui.UI {
-	log.Println("NewAndroidApp(): initializing config and UI")
+	log.Println("Android app init...")
 
-	// Try to load a persisted config if it exists, otherwise fall back to defaults.
-	if cfgDir, err := os.UserConfigDir(); err == nil && cfgDir != "" {
-		cfgPath := filepath.Join(cfgDir, "go-let-observer", "config.yaml")
-		if _, statErr := os.Stat(cfgPath); statErr == nil {
-			if err := util.InitConfig(cfgPath); err != nil {
-				log.Printf("InitConfig(%s) failed, using defaults: %v", cfgPath, err)
-				_ = util.InitConfig("")
-			}
-		} else {
-			_ = util.InitConfig("")
-		}
-	} else {
-		_ = util.InitConfig("")
+	// Ensure app config directory exists (we'll use this later for RCON config files etc.)
+	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
+		_ = os.MkdirAll(filepath.Join(dir, "go-let-observer"), 0o700)
 	}
 
-	// Viewer mode (same intent as desktop viewer, but mobile-driven)
+	// Load normal app config (safe even if no config file exists)
+	// If you later want to force a specific config file path, pass it here.
+	_ = util.InitConfig("")
+
+	// Start UI in viewer mode (same pattern as desktop, but touch driven)
 	return ui.NewUI(shared.MODE_VIEWER)
 }
