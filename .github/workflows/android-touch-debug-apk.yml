@@ -9,6 +9,8 @@ jobs:
 
     env:
       ANDROID_API: 21
+      GOFLAGS: -tags=mobile
+      GOTOOLCHAIN: local
 
     steps:
       - name: Checkout
@@ -50,26 +52,26 @@ jobs:
           echo "=== GIT SHA ==="
           git rev-parse HEAD
 
+          echo "=== GOFLAGS / GOTOOLCHAIN ==="
+          echo "GOFLAGS=$GOFLAGS"
+          echo "GOTOOLCHAIN=$GOTOOLCHAIN"
+
           echo "=== android folder listing ==="
           ls -la ./android
 
           echo "=== android/gomobile_app.go (first 40 lines) ==="
           sed -n '1,40p' ./android/gomobile_app.go || true
 
-          echo "=== go env (key vars) ==="
-          go env | egrep 'GOOS|GOARCH|GOMOD|GOWORK|CGO_ENABLED' || true
-
-          echo "=== go list for ./android with -tags=mobile ==="
-          go list -tags=mobile -f 'ImportPath={{.ImportPath}}' ./android
-          go list -tags=mobile -f 'GoFiles={{.GoFiles}}' ./android
-          go list -tags=mobile -f 'IgnoredGoFiles={{.IgnoredGoFiles}}' ./android
-          go list -tags=mobile -f 'Imports={{.Imports}}' ./android
+          echo "=== go list for ./android (GOFLAGS applies) ==="
+          go list -f 'ImportPath={{.ImportPath}}' ./android
+          go list -f 'GoFiles={{.GoFiles}}' ./android
+          go list -f 'IgnoredGoFiles={{.IgnoredGoFiles}}' ./android
+          go list -f 'Imports={{.Imports}}' ./android
 
           echo "=== gomobile build ==="
           gomobile build \
             -target=android \
             -androidapi=${ANDROID_API} \
-            -tags=mobile \
             -o app-debug.apk \
             ./android
 
