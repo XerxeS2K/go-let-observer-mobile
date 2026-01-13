@@ -51,10 +51,11 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
           gomobile build \
-            -target=android \
-            -androidapi=21 \
-            -o app-debug.apk \
-            ./android
+           -target=android \
+           -androidapi=21 \
+           -tags=mobile \
+           -o app-debug.apk \
+           ./android
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
